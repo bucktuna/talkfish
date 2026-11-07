@@ -6,10 +6,10 @@ import { Check, CircleDashed, CircleHelp, Mic, Square } from "lucide-react";
 import { ChessBoard } from "@/components/chess-board";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { importPosition, type ImportedLine } from "@/lib/import-position";
+import { importPosition } from "@/lib/import-position";
 import { sideToMoveLabel, START_FEN } from "@/lib/fen";
 import { SAMPLES } from "@/lib/samples";
-import type { Claim, ClaimStatus, CoachResponse } from "@/lib/types";
+import type { Claim, ClaimStatus, CoachResponse, GameReview, LichessGameSummary, OpeningGuideView, PositionGist, ReviewMoment } from "@/lib/types";
 import { OPEN_INVITATION } from "@/lib/types";
 
 type Line = {
@@ -64,8 +64,19 @@ export function CoachApp() {
   const [listening, setListening] = useState(false);
   const [readAloud, setReadAloud] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [review, setReview] = useState<GameReview | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [lichessName, setLichessName] = useState("");
+  const [lichessGames, setLichessGames] = useState<LichessGameSummary[] | null>(null);
+  const [gist, setGist] = useState<PositionGist | null>(null);
+  const [explainBusy, setExplainBusy] = useState(false);
+  const [explainError, setExplainError] = useState<string | null>(null);
   const seq = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  const reviewAbort = useRef<AbortController | null>(null);
+  const explainAbort = useRef<AbortController | null>(null);
   const sessionRef = useRef("");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
@@ -120,11 +131,15 @@ export function CoachApp() {
 
   function adopt(next: Line) {
     abortRef.current?.abort();
+    reviewAbort.current?.abort();
+    explainAbort.current?.abort();
     setPv(null);
     setPendingPromo(null);
     setLine(next);
     setMessages([]);
     setAskError(null);
+    setReview(null);
+    setReviewError(null);
   }
 
   async function refresh(boardFen: string, token: number) {
@@ -171,6 +186,159 @@ export function CoachApp() {
     } finally {
       if (token === seq.current) setBusy(false);
     }
+  }
+
+  async function runReview(payload: { startFen?: string; sans?: string[]; pgn?: string; player?: "white" | "black" }) {
+    reviewAbort.current?.abort();
+    const controller = new AbortController();
+    reviewAbort.current = controller;
+    setReviewBusy(true);
+    setReviewError(null);
+    setReviewOpen(true);
+    try {
+      const response = await fetch("/api/review", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: window.location.origin },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      const body = (await response.json()) as GameReview & { error?: string };
+      if (controller.signal.aborted) return;
+      if (!response.ok) {
+        setReviewError(body.error || "The review did not finish.");
+        setReview(null);
+        return;
+      }
+      setReview(body);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setReviewError("The review did not finish.");
+    } finally {
+      if (reviewAbort.current === controller) setReviewBusy(false);
+    }
+  }
+
+  function reviewLoadedGame() {
+    if (line.sans.length) {
+      void runReview({ startFen: line.fens[0], sans: line.sans });
+      return;
+    }
+    const text = importText.trim();
+    if (!text) {
+      setReviewOpen(true);
+      setReviewError("Paste a PGN, load a game, or fetch a Lichess user first.");
+      return;
+    }
+    try {
+      const imported = importPosition(text);
+      if (!imported.sans.length) {
+        setReviewOpen(true);
+        setReviewError("That position has no moves to review. Paste a game.");
+        return;
+      }
+      const anchor = imported.fens.length - 1;
+      adopt({ fens: imported.fens, sans: imported.sans, cursor: anchor, anchor, notices: imported.notices });
+      setImportError(null);
+      void runReview({ startFen: imported.startFen, sans: imported.sans });
+    } catch (error) {
+      setReviewOpen(true);
+      setReviewError(error instanceof Error ? error.message : "Could not read that game.");
+    }
+  }
+
+  async function fetchLichess() {
+    const username = lichessName.trim();
+    if (!username) {
+      setReviewError("Enter a Lichess username.");
+      setReviewOpen(true);
+      return;
+    }
+    setReviewBusy(true);
+    setReviewError(null);
+    setReviewOpen(true);
+    try {
+      const response = await fetch(`/api/lichess/games?username=${encodeURIComponent(username)}`, {
+        headers: { origin: window.location.origin },
+      });
+      const body = (await response.json()) as { games?: LichessGameSummary[]; error?: string };
+      if (!response.ok) {
+        setReviewError(body.error || "Could not load those games.");
+        setLichessGames(null);
+        return;
+      }
+      setLichessGames(body.games ?? []);
+      if (!body.games?.length) setReviewError("No standard games came back.");
+    } catch {
+      setReviewError("Could not load those games.");
+    } finally {
+      setReviewBusy(false);
+    }
+  }
+
+  function openLichessGame(game: LichessGameSummary) {
+    try {
+      const imported = importPosition(game.pgn);
+      const anchor = imported.fens.length - 1;
+      adopt({ fens: imported.fens, sans: imported.sans, cursor: anchor, anchor, notices: imported.notices });
+      setImportText(game.pgn);
+      setImportError(null);
+      const player = game.white.toLowerCase() === lichessName.trim().toLowerCase()
+        ? "white"
+        : game.black.toLowerCase() === lichessName.trim().toLowerCase()
+          ? "black"
+          : undefined;
+      void runReview({ startFen: imported.startFen, sans: imported.sans, player });
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : "Could not load that game.");
+    }
+  }
+
+  async function runExplain(boardFen: string, history: { startFen?: string; historySans?: string[] }) {
+    explainAbort.current?.abort();
+    const controller = new AbortController();
+    explainAbort.current = controller;
+    setExplainBusy(true);
+    setExplainError(null);
+    try {
+      const response = await fetch("/api/explain", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: window.location.origin },
+        body: JSON.stringify({ fen: boardFen, ...history }),
+        signal: controller.signal,
+      });
+      const body = (await response.json()) as PositionGist & { error?: string };
+      if (controller.signal.aborted) return;
+      if (!response.ok) {
+        setExplainError(body.error || "The explanation did not finish.");
+        return;
+      }
+      setGist(body);
+      speak(body.spoken);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setExplainError("The explanation did not finish.");
+    } finally {
+      if (explainAbort.current === controller) setExplainBusy(false);
+    }
+  }
+
+  function explainCurrent() {
+    if (pv) {
+      void runExplain(displayFen, {});
+      return;
+    }
+    void runExplain(currentFen(line), historyPayload(line));
+  }
+
+  function explainMoment(moment: ReviewMoment) {
+    showMoment(moment.ply);
+    void runExplain(moment.fen, { startFen: line.fens[0], historySans: line.sans.slice(0, moment.ply) });
+  }
+
+  function showMoment(ply: number) {
+    setPv(null);
+    setPendingPromo(null);
+    setLine((current) => ({ ...current, cursor: Math.max(0, Math.min(ply, current.fens.length - 1)) }));
   }
 
   function loadImport() {
@@ -299,6 +467,8 @@ export function CoachApp() {
 
   const side = sideToMoveLabel(displayFen);
   const openingLabel = [...messages].reverse().find((message) => message.response?.opening)?.response?.opening?.label;
+  const openingGuide = [...messages].reverse().find((message) => message.response?.openingGuide)?.response?.openingGuide ?? null;
+  const shownGist = gist && gist.fen.split(" ").slice(0, 4).join(" ") === displayFen.split(" ").slice(0, 4).join(" ") ? gist : null;
 
   const speechNote = useMemo(() => {
     if (speech.error) return speech.error;
@@ -324,6 +494,9 @@ export function CoachApp() {
             <ChessBoard fen={displayFen} orientation={orientation} interactive={!pv} onMove={(from, to) => playUserMove(from, to)} />
           </div>
           <div className="under-board">
+            <Button type="button" size="sm" onClick={() => explainCurrent()} disabled={explainBusy} data-testid="explain-button">
+              Explain
+            </Button>
             <span className="turn-label">{side} to move</span>
             {openingLabel ? <span className="turn-label">{openingLabel}</span> : null}
             <Button variant="outline" size="sm" type="button" onClick={() => setLine((current) => ({ ...current, cursor: Math.max(0, current.cursor - 1) }))} disabled={Boolean(pv) || line.cursor === 0}>
@@ -352,6 +525,21 @@ export function CoachApp() {
               </>
             ) : null}
           </div>
+          {explainBusy ? <p className="note" data-testid="explain-thinking">Thinking…</p> : null}
+          {explainError ? <p className="alert" role="alert">{explainError}</p> : null}
+          {shownGist ? (
+            <div className="opening-guide" data-testid="explain-panel">
+              <p className="note">
+                {shownGist.source === "engine-checked" ? "Engine-checked" : "Provisional"}
+                {shownGist.phrasing === "facts-only" ? " · facts only" : ""}
+              </p>
+              {shownGist.modelNote ? <p className="note">{shownGist.modelNote}</p> : null}
+              <p style={{ whiteSpace: "pre-wrap" }}>{shownGist.text}</p>
+            </div>
+          ) : null}
+          {openingGuide ? (
+            <OpeningGuidePanel guide={openingGuide} pastCatalog={Boolean(openingLabel?.includes("not the current catalog position"))} />
+          ) : null}
           {pendingPromo ? (
             <div className="under-board" role="group" aria-label="Choose promotion">
               {(["q", "r", "b", "n"] as const).map((piece) => (
@@ -395,12 +583,77 @@ export function CoachApp() {
               <Button type="button" onClick={loadImport}>
                 Load
               </Button>
+              <Button type="button" variant="outline" onClick={() => { setReviewOpen(true); reviewLoadedGame(); }}>
+                Review a game
+              </Button>
             </div>
             {importError ? <p className="alert" role="alert">{importError}</p> : null}
             {notices.map((notice) => (
               <p className="note" key={notice}>{notice}</p>
             ))}
           </div>
+          {reviewOpen ? (
+            <section className="review-panel" data-testid="game-review" aria-label="Game review">
+              <h2>Review a game</h2>
+              <p className="note">Paste a PGN above, or fetch recent public games for a Lichess username. Cloud moments are engine-verified. Other moments are heuristic.</p>
+              <div className="row-actions">
+                <label>
+                  Lichess username
+                  <input aria-label="Lichess username" value={lichessName} onChange={(event) => setLichessName(event.target.value)} />
+                </label>
+                <Button type="button" variant="outline" onClick={() => void fetchLichess()} disabled={reviewBusy}>
+                  Recent games
+                </Button>
+              </div>
+              {lichessGames?.length ? (
+                <ul className="moment-list">
+                  {lichessGames.map((game) => (
+                    <li key={game.id}>
+                      <button className="linkish" type="button" onClick={() => openLichessGame(game)}>
+                        {game.white} vs {game.black} · {game.result} · {game.opening ?? game.speed}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {reviewBusy ? <p className="note">Reviewing the game…</p> : null}
+              {reviewError ? <p className="alert" role="alert">{reviewError}</p> : null}
+              {review ? (
+                <div className="stack">
+                  <p>{review.summary}</p>
+                  {review.openingGuide ? (
+                    <p className="note">
+                      Opening guide: {review.openingGuide.title}. {review.openingGuide.label}
+                    </p>
+                  ) : null}
+                  {review.moments.length ? (
+                    <ul className="moment-list">
+                      {review.moments.map((moment) => (
+                        <li key={`${moment.ply}-${moment.san}`} className="moment-row">
+                          <button type="button" className="moment" onClick={() => showMoment(moment.ply)} data-ply={moment.ply}>
+                            <span className="badge-word">
+                              {moment.source === "engine" ? "Engine-verified" : moment.source === "rules" ? "Rules" : "Heuristic"}. {moment.label}.
+                            </span>{" "}
+                            Ply {moment.ply}, {moment.side}, {moment.san}. {moment.note}
+                          </button>
+                          <Button type="button" size="sm" variant="outline" onClick={() => explainMoment(moment)} disabled={explainBusy}>
+                            Explain
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="note">No sharp turning point stood out in the positions that could be checked.</p>
+                  )}
+                  <ol className="recommendations">
+                    {review.recommendations.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ol>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
         </section>
         <section className="talk" aria-label="Conversation" data-testid="conversation" data-current-fen={currentFen(line)}>
           <div className="messages">
@@ -425,7 +678,13 @@ export function CoachApp() {
                   <details>
                     <summary>Evidence</summary>
                     <p className="note">
-                      {message.response.engine.engineName} depth {message.response.engine.depth}. {message.response.engine.scoreWhiteLabel}. Preference is {message.response.engine.preference.status}, separate from explanation status.
+                      {message.response.engine.coverage === "not-in-cloud"
+                        ? "No stored Lichess cloud evaluation. Provisional and unverified."
+                        : message.response.engine.coverage === "cooling-down"
+                          ? "The engine is cooling down. Try again in about a minute."
+                          : message.response.engine.coverage === "timeout"
+                            ? "The cloud evaluation timed out. Provisional and unverified."
+                            : `${message.response.engine.engineName} depth ${message.response.engine.depth}. ${message.response.engine.scoreWhiteLabel}. Preference is ${message.response.engine.preference.status}, separate from explanation status.`}
                     </p>
                     {message.response.engine.pvSan.length ? (
                       <Button
@@ -524,6 +783,22 @@ export function CoachApp() {
         <ContributePanel fen={currentFen(line)} onClose={() => dialogRef.current?.close()} />
       </dialog>
       </div>
+  );
+}
+
+function OpeningGuidePanel({ guide, pastCatalog }: { guide: OpeningGuideView; pastCatalog: boolean }) {
+  return (
+    <details className="opening-guide" data-testid="opening-guide">
+      <summary>How to play this opening</summary>
+      <p className="note">{guide.label}</p>
+      <p><strong>{guide.title}.</strong> {guide.summary}</p>
+      {pastCatalog ? <p className="note">The board is past the catalog line. This guide is for the opening the game passed through.</p> : null}
+      <p><span className="badge-word">White. </span>{guide.whitePlans}</p>
+      <p><span className="badge-word">Black. </span>{guide.blackPlans}</p>
+      <p><span className="badge-word">Structure. </span>{guide.structure}</p>
+      <p><span className="badge-word">Setups. </span>{guide.setups}</p>
+      <p><span className="badge-word">Watch for. </span>{guide.trap}</p>
+    </details>
   );
 }
 

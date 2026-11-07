@@ -28,6 +28,8 @@ export type EngineScore = {
   bound?: "lower" | "upper";
 };
 
+export type EngineCoverage = "evaluated" | "not-in-cloud" | "cooling-down" | "timeout";
+
 export type EngineResult = {
   available: true;
   terminal: null | "checkmate" | "stalemate" | "draw";
@@ -53,6 +55,9 @@ export type EngineResult = {
     reason: string;
   };
   searchedMove?: string | null;
+  /** Present for the Lichess cloud adapter. Omitted on a local UCI search. */
+  coverage?: EngineCoverage;
+  fromCache?: boolean;
 };
 
 export type Hypothesis = {
@@ -94,6 +99,66 @@ export type OpeningRecognition = {
   source: { name: string; commit: string; date: string; license: string; url: string };
 };
 
+export type OpeningGuideView = {
+  id: string;
+  title: string;
+  summary: string;
+  whitePlans: string;
+  blackPlans: string;
+  structure: string;
+  setups: string;
+  trap: string;
+  label: string;
+};
+
+export type ReviewMoment = {
+  ply: number;
+  fen: string;
+  san: string;
+  side: "white" | "black";
+  source: "engine" | "heuristic" | "rules";
+  label: string;
+  note: string;
+};
+
+export type GameReview = {
+  opening: OpeningRecognition | null;
+  openingGuide: OpeningGuideView | null;
+  summary: string;
+  moments: ReviewMoment[];
+  recommendations: string[];
+  cloudHits: number;
+  cloudMisses: number;
+  coolingDown: boolean;
+  plies: number;
+};
+
+export type PositionGist = {
+  fen: string;
+  /** Cloud eval was stored, or the rules already decided the game. Otherwise provisional. */
+  source: "engine-checked" | "provisional";
+  phrasing: "model" | "facts-only";
+  modelNote?: string;
+  balance: string;
+  whitePlan: string;
+  blackPlan: string;
+  watch: string;
+  bestMove: string;
+  text: string;
+  /** Same gist with SAN spoken for read-aloud, such as Nf3 as "knight f3". */
+  spoken: string;
+};
+
+export type LichessGameSummary = {
+  id: string;
+  white: string;
+  black: string;
+  result: string;
+  speed: string;
+  opening: string | null;
+  pgn: string;
+};
+
 export type CoachMode = "model" | "engine-only";
 
 export type CoachResponse = {
@@ -118,4 +183,5 @@ export type CoachResponse = {
   sessionNote?: string;
   engineError?: string;
   opening?: OpeningRecognition | null;
+  openingGuide?: OpeningGuideView | null;
 };

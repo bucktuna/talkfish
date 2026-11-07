@@ -1,14 +1,13 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import { Chess } from "chess.js";
+import { EngineError } from "@/lib/engine-error";
+import { analyzeCloudFen } from "@/lib/lichess-cloud";
 import type { EngineResult, EngineScore } from "@/lib/types";
+import { formatWhiteScore } from "@/lib/white-score";
 
-export class EngineError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "EngineError";
-  }
-}
+export { EngineError };
+export { formatWhiteScore };
 
 export type SearchLimits = {
   depth: number;
@@ -45,6 +44,12 @@ export function activeEngineCount(): number {
   return live.size;
 }
 
+export function engineProvider(): "lichess" | "uci" {
+  const value = (process.env.ENGINE_PROVIDER ?? "lichess").trim().toLowerCase();
+  if (value === "uci" || value === "stockfish") return "uci";
+  return "lichess";
+}
+
 export function resolveStockfishPath(): string {
   const fromEnv = process.env.STOCKFISH_PATH?.trim();
   if (fromEnv) {
@@ -56,6 +61,18 @@ export function resolveStockfishPath(): string {
   if (existsSync("/usr/local/bin/stockfish")) return "/usr/local/bin/stockfish";
   if (existsSync("/usr/games/stockfish")) return "/usr/games/stockfish";
   return "stockfish";
+}
+
+export function stockfishInstalled(): boolean {
+  try {
+    const bin = resolveStockfishPath();
+    if (existsSync(bin)) return true;
+    if (bin.includes("/") || bin.includes("\\")) return false;
+    const found = spawnSync(process.platform === "win32" ? "where" : "which", [bin], { encoding: "utf8" });
+    return found.status === 0 && Boolean(found.stdout?.trim());
+  } catch {
+    return false;
+  }
 }
 
 export function clampLimits(input?: { depth?: number; movetimeMs?: number }): SearchLimits {
@@ -74,20 +91,6 @@ export function clampLimits(input?: { depth?: number; movetimeMs?: number }): Se
 function numberEnv(name: string, fallback: number): number {
   const parsed = Number(process.env[name]);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-export function formatWhiteScore(score: EngineScore | null): string {
-  if (!score) return "no score";
-  if (score.kind === "mate") {
-    if (score.value > 0) return `mate in ${score.value} for White`;
-    if (score.value < 0) return `mate in ${-score.value} for Black`;
-    return "mate";
-  }
-  const pawns = (score.value / 100).toFixed(2);
-  const sign = score.value > 0 ? "+" : "";
-  const bound =
-    score.bound === "lower" ? ", or better for White" : score.bound === "upper" ? ", or worse for White" : "";
-  return `${sign}${pawns} from White's side${bound}`;
 }
 
 export async function engineName(): Promise<string> {
@@ -110,7 +113,10 @@ export async function analyzeFen(
   }
   const chess = new Chess(fen);
   const canonical = chess.fen();
-  if (chess.isGameOver()) return terminalResult(chess, cachedName ?? "Stockfish");
+  if (chess.isGameOver()) {
+    const name = engineProvider() === "uci" ? cachedName ?? "Stockfish" : "Lichess cloud eval";
+    return terminalResult(chess, name);
+  }
 
   const limits = clampLimits(limitsInput);
   if (searchMoves) {
@@ -121,6 +127,18 @@ export async function analyzeFen(
     }
   }
 
+  if (engineProvider() !== "uci") {
+    return analyzeCloudFen(canonical, limits, signal, searchMoves);
+  }
+  return analyzeFenUci(canonical, limits, signal, searchMoves);
+}
+
+async function analyzeFenUci(
+  canonical: string,
+  limits: SearchLimits,
+  signal?: AbortSignal,
+  searchMoves?: string[],
+): Promise<EngineResult> {
   await acquire();
   const proc = spawn(resolveStockfishPath(), [], { shell: false, stdio: ["pipe", "pipe", "pipe"] });
   live.add(proc);

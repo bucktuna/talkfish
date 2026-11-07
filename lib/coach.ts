@@ -13,6 +13,7 @@ import {
   provisionalModelClaims,
   type LlmProvider,
 } from "@/lib/llm";
+import { asksAboutPlans, guideForOpening } from "@/lib/opening-guides";
 import { openingClaim, recognizeOpening } from "@/lib/openings";
 import { sessionHas, sessionRemember } from "@/lib/session-memory";
 import type { Assessment, Claim, CoachResponse, ComparisonResult, EngineResult } from "@/lib/types";
@@ -123,7 +124,9 @@ export async function runCoachTurn(
   assessment = { ...assessment, cached };
 
   const question = input.question?.trim() ?? "";
-  const comparisons = question && engine ? await compareProposed(fen, question, engine, limits, input.signal) : [];
+  const opening = recognizeOpening({ fen, startFen: input.startFen, sans: input.historySans });
+  const openingGuide = guideForOpening(opening);
+  const comparisons = question && engine?.score ? await compareProposed(fen, question, engine, limits, input.signal) : [];
   const themes = packaged?.themes ?? (facts.centralWedge ? ["closed-center"] : []);
   const patterns = question && corpus ? matchingPatterns(corpus, question, themes, fen) : [];
   const findings = question ? questionFindings(question, fen) : [];
@@ -137,15 +140,29 @@ export async function runCoachTurn(
           assessment: { summary: assessment.summary, hypotheses: assessment.hypotheses },
           question,
           engine: snapshot.engine,
-          comparisons: comparisons.map((item) => ({
-            san: item.san,
-            scoreWhiteLabel: item.scoreWhiteLabel,
-            depth: item.depth,
-          })),
+          comparisons: comparisons
+            .filter((item) => item.score)
+            .map((item) => ({
+              san: item.san,
+              scoreWhiteLabel: item.scoreWhiteLabel,
+              depth: item.depth,
+            })),
           patterns: patterns.map((pattern) => ({ id: pattern.id, statement: pattern.statement })),
           sessionAlreadyHeard: input.sessionId && sessionHas(input.sessionId, "structure-definition")
             ? ["structure-definition"]
             : [],
+          openingGuide: openingGuide
+            ? {
+                title: openingGuide.title,
+                summary: openingGuide.summary,
+                whitePlans: openingGuide.whitePlans,
+                blackPlans: openingGuide.blackPlans,
+                structure: openingGuide.structure,
+                setups: openingGuide.setups,
+                trap: openingGuide.trap,
+                label: openingGuide.label,
+              }
+            : null,
         }),
         { purpose: "examine", signal: input.signal },
       );
@@ -177,9 +194,24 @@ export async function runCoachTurn(
     reply += " That conclusion is not established: a rook move does not prove the pawn break was abandoned.";
   }
 
-  const opening = recognizeOpening({ fen, startFen: input.startFen, sans: input.historySans });
+  if (openingGuide && question && asksAboutPlans(question)) {
+    const sideNote = facts.sideToMove === "white" ? openingGuide.whitePlans : openingGuide.blackPlans;
+    const curated = `Curated opening note, not engine-verified: ${openingGuide.title}. ${openingGuide.summary} ${sideNote}`;
+    if (!/not engine-verified/i.test(reply)) reply = `${reply} ${curated}`.trim();
+  }
+
   const claims = dedupeClaims([
     ...(opening ? [openingClaim(opening)] : []),
+    ...(openingGuide && question && asksAboutPlans(question)
+      ? [{
+          id: "opening-guide",
+          text: `Curated opening note, not engine-verified: ${openingGuide.title}. ${openingGuide.summary}`,
+          status: "provisional" as const,
+          kind: "strategic" as const,
+          reason: "This is a short curated guide for the recognized opening. It is not an engine evaluation and it is not a mapped plan.",
+          evidence: [`guide ${openingGuide.id}`, openingGuide.label],
+        }]
+      : []),
     ...serverClaims(engine, comparisons, findings),
     ...modelHypotheses,
     ...patterns.map((pattern) => ({
@@ -227,6 +259,7 @@ export async function runCoachTurn(
       : undefined,
     engineError,
     opening,
+    openingGuide,
   };
 }
 
@@ -271,7 +304,13 @@ function deterministicAssessment(
     ? "No engine result is available."
     : engine.terminal
       ? engine.scoreWhiteLabel
-      : `A Stockfish search at depth ${engine.depth} ended on ${engine.bestMoveSan ?? "no move"} with ${engine.scoreWhiteLabel}. That reports the search. It does not explain a plan.`;
+      : engine.coverage === "not-in-cloud"
+        ? "Lichess cloud eval has no stored line for this position. The reading is provisional and unverified."
+        : engine.coverage === "cooling-down"
+          ? "The engine is cooling down. Try again in about a minute. This reading is provisional."
+          : engine.coverage === "timeout"
+            ? "The cloud evaluation timed out. This reading is provisional and unverified."
+            : `A ${engine.engineName} line at depth ${engine.depth} ended on ${engine.bestMoveSan ?? "no move"} with ${engine.scoreWhiteLabel}. That reports the search. It does not explain a plan.`;
   return {
     source: "deterministic",
     summary: `${snapshot.sideToMove === "white" ? "White" : "Black"} to move. ${structure} ${search}`,
@@ -309,6 +348,15 @@ function deterministicReply(input: {
   } else {
     parts.push(input.assessment.summary);
   }
+  if (input.engine?.coverage === "not-in-cloud") {
+    parts.push(
+      "This position is not in the Lichess cloud cache, so the reading is provisional and unverified. A nearby or earlier position may have a stored evaluation.",
+    );
+  } else if (input.engine?.coverage === "cooling-down") {
+    parts.push("The engine is cooling down. Try again in about a minute.");
+  } else if (input.engine?.coverage === "timeout") {
+    parts.push("The cloud evaluation timed out. This reading is provisional and unverified.");
+  }
   if (!input.question) {
     parts.push("Ask about the plan when you are ready. I will not narrate every move.");
     return parts.join(" ");
@@ -328,7 +376,7 @@ function deterministicReply(input: {
   }
   if (input.comparisons.length && input.engine?.bestMoveSan) {
     const bits = input.comparisons
-      .filter((item) => item.legal)
+      .filter((item) => item.legal && item.score)
       .map((item) => `${item.san} scored ${item.scoreWhiteLabel} at depth ${item.depth}`);
     if (bits.length) {
       parts.push(
@@ -352,6 +400,33 @@ function serverClaims(engine: EngineResult | null, comparisons: ComparisonResult
       kind: "board",
       reason: "The rules of the position say the game is over. No search was required.",
       evidence: [`terminal=${engine.terminal}`],
+    });
+  } else if (engine?.coverage === "not-in-cloud") {
+    claims.push({
+      id: "engine-unverified",
+      text: "No stored Lichess cloud evaluation for this position. This answer is provisional and unverified.",
+      status: "provisional",
+      kind: "engine-report",
+      reason: "A cache miss is not a search result. Nothing here was engine-checked.",
+      evidence: ["lichess cloud 404"],
+    });
+  } else if (engine?.coverage === "cooling-down") {
+    claims.push({
+      id: "engine-cooldown",
+      text: "The engine is cooling down after a rate limit. Try again in about a minute. This answer is provisional.",
+      status: "provisional",
+      kind: "engine-report",
+      reason: "Lichess asked for one request at a time and returned 429. The pause is about 60 seconds.",
+      evidence: ["lichess cloud 429"],
+    });
+  } else if (engine?.coverage === "timeout") {
+    claims.push({
+      id: "engine-timeout",
+      text: "The cloud evaluation timed out. This answer is provisional and unverified.",
+      status: "provisional",
+      kind: "engine-report",
+      reason: "The lookup was cancelled by the timeout before a stored line came back.",
+      evidence: ["lichess cloud timeout"],
     });
   } else if (engine?.bestMoveSan && engine.pvLegal) {
     claims.push({
@@ -381,7 +456,7 @@ function serverClaims(engine: EngineResult | null, comparisons: ComparisonResult
     });
   }
   for (const comparison of comparisons) {
-    if (!comparison.legal || !engine?.score) continue;
+    if (!comparison.legal || !comparison.score || !engine?.score) continue;
     claims.push({
       id: `compare-${comparison.san}`,
       text: `At depth ${comparison.depth}, ${comparison.san} scored ${comparison.scoreWhiteLabel}, while the search's first move scored ${engine.scoreWhiteLabel}.`,

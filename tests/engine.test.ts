@@ -1,12 +1,39 @@
-import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Chess } from "chess.js";
-import { activeEngineCount, analyzeFen } from "@/lib/engine";
+import { activeEngineCount, analyzeFen, resolveStockfishPath, stockfishInstalled } from "@/lib/engine";
 
 const start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const limits = { depth: 8, movetimeMs: 1500 };
 
+function binaryAvailable(): boolean {
+  try {
+    return stockfishInstalled() || localWhich();
+  } catch {
+    return false;
+  }
+}
+
+function localWhich(): boolean {
+  const bin = resolveStockfishPath();
+  if (existsSync(bin)) return true;
+  if (bin.includes("/")) return false;
+  const found = spawnSync("which", [bin], { encoding: "utf8" });
+  return found.status === 0;
+}
+
+const available = binaryAvailable();
+
 describe("stockfish", () => {
-  it("returns a legal PV and a White-point-of-view score", async () => {
+  beforeAll(() => {
+    process.env.ENGINE_PROVIDER = "uci";
+  });
+  afterAll(() => {
+    delete process.env.ENGINE_PROVIDER;
+  });
+
+  it.skipIf(!available)("returns a legal PV and a White-point-of-view score", async () => {
     const white = await analyzeFen(start, limits);
     expect(white.engineName.toLowerCase()).toContain("stockfish");
     expect(white.pvLegal).toBe(true);
@@ -19,19 +46,14 @@ describe("stockfish", () => {
     expect(activeEngineCount()).toBe(0);
   });
 
-  it("reports mate, terminal positions, and rejects an illegal FEN", async () => {
+  it.skipIf(!available)("reports mate from a search", async () => {
     const mate = await analyzeFen("7k/R7/6K1/8/8/8/8/8 w - - 0 1", limits);
     expect(mate.score?.kind).toBe("mate");
     expect(mate.score!.value).toBeGreaterThan(0);
-    const over = await analyzeFen("r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4", limits);
-    expect(over.terminal).toBe("checkmate");
-    expect(over.winner).toBe("white");
-    expect(over.bestMove).toBeNull();
-    await expect(analyzeFen("8/8/8/8/8/8/8/8 w - - 0 1", limits)).rejects.toThrow();
     expect(activeEngineCount()).toBe(0);
   });
 
-  it("kills the process when the search is cancelled", async () => {
+  it.skipIf(!available)("kills the process when the search is cancelled", async () => {
     const controller = new AbortController();
     const pending = analyzeFen(start, { depth: 30, movetimeMs: 8000 }, controller.signal);
     setTimeout(() => controller.abort(), 150);

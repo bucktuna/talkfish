@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Talkfish">
+  <rect width="64" height="64" rx="14" fill="#0f5c4c"/>
+  <path fill="#f3efe7" d="M8 34c10-16 28-16 36-4l12-8v20l-12-8c-8 14-26 14-36 0z"/>
+  <circle cx="38" cy="30" r="2.2" fill="#0f5c4c"/>
+</svg>

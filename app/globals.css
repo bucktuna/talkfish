@@ -145,6 +145,33 @@ button, textarea, input { font: inherit; }
 .composer-row { display: flex; gap: 8px; align-items: flex-end; }
 .composer-row textarea { min-height: 44px; max-height: 120px; resize: vertical; }
 
+.opening-guide, .review-panel {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: var(--paper);
+}
+.opening-guide summary, .review-panel h2 {
+  cursor: pointer;
+  font-weight: 650;
+  font-size: 0.95rem;
+}
+.review-panel h2 { margin: 0 0 6px; font-family: Georgia, serif; font-size: 1.05rem; }
+.opening-guide p, .review-panel p { margin: 6px 0; line-height: 1.4; }
+.moment-list { display: grid; gap: 6px; margin: 8px 0; padding: 0; list-style: none; }
+.moment-row { display: flex; gap: 8px; align-items: flex-start; }
+.moment, .moment-list .linkish { text-align: left; }
+.moment {
+  width: 100%;
+  background: var(--background);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.recommendations { margin: 8px 0 0; padding-left: 1.1rem; display: grid; gap: 6px; }
+
 .note { color: var(--muted); font-size: 0.82rem; margin: 0; }
 .alert { color: var(--open-fg); font-size: 0.92rem; margin: 0; }
 
