@@ -1,0 +1,17 @@
+node_modules
+.next
+out
+data
+corpus-export
+.env
+.env.local
+*.log
+test-results
+playwright-report
+blob-report
+coverage
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+.env*
+!.env.example
