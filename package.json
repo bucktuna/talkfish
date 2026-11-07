@@ -1,0 +1,49 @@
+{
+  "name": "talkfish",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "overrides": {
+    "postcss": "8.5.32"
+  },
+  "scripts": {
+    "dev": "next dev -H 127.0.0.1 -p 43123",
+    "build": "next build",
+    "start": "next start -H 127.0.0.1 -p 43123",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "seed:corpus": "tsx scripts/build-seed.ts",
+    "openings:build": "tsx scripts/build-openings.ts",
+    "update:source": "node scripts/sync-source.mjs --mode source",
+    "corpus:pull": "node scripts/sync-source.mjs --mode corpus",
+    "corpus:export": "node scripts/export-corpus.mjs --from corpus --out corpus-export"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.5.0",
+    "chess.js": "^1.4.0",
+    "chessground": "^9.2.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.70.0",
+    "next": "15.5.29",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "tailwind-merge": "^3.7.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@playwright/test": "^1.65.0",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.29",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^3.2.7"
+  }
+}
