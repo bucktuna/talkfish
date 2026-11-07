@@ -11,6 +11,7 @@ export const LIMITS: Record<string, Limit> = {
   vote: { limit: 60, windowMs: 60 * 60 * 1000 },
   report: { limit: 8, windowMs: 60 * 60 * 1000 },
   coach: { limit: 60, windowMs: 10 * 60 * 1000 },
+  review: { limit: 8, windowMs: 10 * 60 * 1000 },
 };
 
 const overrides = new Map<string, Limit>();

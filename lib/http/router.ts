@@ -3,12 +3,13 @@ import { downvoteEligibility, configuredMinDistinct, type CountedVote } from "@/
 import { findPosition, exportCorpusText, loadPackagedCorpus } from "@/lib/corpus";
 import { runCoachTurn, runOrientation } from "@/lib/coach";
 import { createContribution, quarantineReason } from "@/lib/contributions";
-import { EngineError } from "@/lib/engine";
+import { EngineError, engineProvider, resolveStockfishPath, stockfishInstalled } from "@/lib/engine";
 import { HttpError } from "@/lib/http/errors";
 import { clientKey, enforceLimit } from "@/lib/rate-limit";
 import { redact } from "@/lib/redact";
+import { fetchRecentLichessGames } from "@/lib/lichess-games";
+import { reviewGame } from "@/lib/review";
 import { sessionKey } from "@/lib/session-memory";
-import { resolveStockfishPath } from "@/lib/engine";
 import { getProvider } from "@/lib/llm";
 import {
   accountStats,
@@ -32,8 +33,6 @@ import {
   votesFor,
   weightPreview,
 } from "@/lib/store";
-import { existsSync } from "node:fs";
-
 const coachSchema = z.strictObject({
   fen: z.string().min(8).max(200),
   question: z.string().max(2000).optional(),
@@ -83,6 +82,13 @@ const reviewSchema = z.strictObject({
   decision: z.enum(["unsupported", "disproven", "reverse-penalty", "engine-stands"]),
 });
 
+const gameReviewSchema = z.strictObject({
+  startFen: z.string().min(8).max(200).optional(),
+  sans: z.array(z.string().min(2).max(16)).max(400).optional(),
+  pgn: z.string().max(100_000).optional(),
+  player: z.enum(["white", "black"]).optional(),
+});
+
 function json(body: unknown, status = 200, extra?: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -98,6 +104,8 @@ export async function handleApi(req: Request): Promise<Response> {
     if (path === "/api/corpus" && req.method === "GET") return corpus(url);
     if (path === "/api/orient" && req.method === "POST") return await orient(req);
     if (path === "/api/coach" && req.method === "POST") return await coach(req);
+    if (path === "/api/review" && req.method === "POST") return await gameReview(req);
+    if (path === "/api/lichess/games" && req.method === "GET") return await lichessGames(req, url);
     if (path === "/api/auth/signup" && req.method === "POST") return await signup(req);
     if (path === "/api/auth/login" && req.method === "POST") return await login(req);
     if (path === "/api/auth/logout" && req.method === "POST") return await logout(req);
@@ -120,12 +128,20 @@ export async function handleApi(req: Request): Promise<Response> {
 async function health(): Promise<Response> {
   const provider = getProvider();
   const model = await provider.available();
-  let engine: { available: boolean; name?: string; error?: string } = { available: false };
-  try {
-    const path = resolveStockfishPath();
-    engine = { available: existsSync(path) || path === "stockfish", name: path === "stockfish" ? "stockfish" : path };
-  } catch (error) {
-    engine = { available: false, error: error instanceof Error ? error.message : "unavailable" };
+  const providerId = engineProvider();
+  let engine: { provider: string; available: boolean; name?: string; error?: string } = {
+    provider: providerId,
+    available: false,
+  };
+  if (providerId === "lichess") {
+    engine = { provider: providerId, available: true, name: "Lichess cloud eval" };
+  } else {
+    try {
+      const binary = resolveStockfishPath();
+      engine = { provider: providerId, available: stockfishInstalled(), name: binary };
+    } catch (error) {
+      engine = { provider: providerId, available: false, error: error instanceof Error ? error.message : "unavailable" };
+    }
   }
   let corpusVersion: string | null = null;
   try {
@@ -199,6 +215,36 @@ async function coach(req: Request): Promise<Response> {
       historySans: body.historySans,
     });
     return json(result);
+  } catch (error) {
+    return engineFailure(error);
+  }
+}
+
+async function gameReview(req: Request): Promise<Response> {
+  assertSameOrigin(req);
+  enforceLimit("review", clientKey(req));
+  const body = gameReviewSchema.parse(await readJson(req, 120_000));
+  try {
+    const review = await reviewGame({
+      startFen: body.startFen,
+      sans: body.sans,
+      pgn: body.pgn,
+      player: body.player,
+      signal: req.signal,
+    });
+    return json(review);
+  } catch (error) {
+    return engineFailure(error);
+  }
+}
+
+async function lichessGames(req: Request, url: URL): Promise<Response> {
+  assertSameOrigin(req);
+  enforceLimit("review", clientKey(req));
+  const username = url.searchParams.get("username") ?? "";
+  try {
+    const games = await fetchRecentLichessGames(username, req.signal);
+    return json({ games });
   } catch (error) {
     return engineFailure(error);
   }

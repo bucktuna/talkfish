@@ -24,6 +24,7 @@ const EXAMINE_SYSTEM = `You are the second pass of a chess coach. An independent
 Be a questioning coach, not a game commentator. Stay concise and offer one question back.
 Do not treat these as proved: a rook move such as Rf1-e1 retiring f4; Ndf3 having only a defensive function because it blocks the f-pawn; a knight supporting e5 proving the whole strategy is restraint.
 Engine scores and a legal PV do not establish why a plan is correct. Say when you are unsure.
+If openingGuide is included and the student asks about plans, you may use it, and you must describe that text as curated, not engine-verified.
 Return JSON only: {"reply":"","hypotheses":[""]}. Do not assign mapped, green, or certainty labels.`;
 
 export function buildAssessmentMessages(snapshot: Record<string, unknown>): ChatMessage[] {

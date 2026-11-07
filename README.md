@@ -16,6 +16,8 @@ The interface stays simple: a Chessground board and a conversation. Paste a PGN 
 
 This section is what this tree actually does. It is not the mission statement.
 
+The engine source in this copy is the Lichess cloud evaluation: a stored Stockfish result for common positions, fetched with no key. A local Stockfish binary is not required. A position that is not in that cache is labelled provisional and unverified.
+
 A real microphone and speaker were not used. Typing works with speech APIs missing. Browser speech, when the browser offers it, is not a guaranteed offline recognizer, and this app does not store audio. One local Ollama call with `qwen2.5:0.5b` did run through the coaching function and returned mode `model`. Its reply was the generic sentence "The position is a typical pawn structure." That call shows the wiring, not that the small model's chess text is reliable. If Ollama is absent, the coach says it is engine-only instead of inventing model prose.
 
 Repeat-avoidance is session-local only. The browser tab keeps a session id in `sessionStorage`, and the server process remembers which points that tab already heard so a later reply in the same tab can be shorter. That record is not a durable personal mastery profile, it is not written into `corpus/`, and it is not an export of the conversation. Shared learning is the chess corpus shipped with the source: position keys, claims, evidence, and provenance. Raw chat, audio, accounts, passwords, and voter identities stay out of it.
@@ -24,7 +26,7 @@ The screen uses three labels, not color alone: Mapped, Provisional, and Open. Th
 
 Other limits of this copy:
 
-- Not production-ready. One Node process. Rate limits are in memory and are not shared across instances. There is no HTTPS, no durable database, no backups, and no shared vote service between machines.
+- Not production-ready. One Node process. Rate limits are in memory and are not shared across instances. The Lichess client is also one process: one request at a time, an in-memory cache, and an optional file under `DATA_DIR`. There is no HTTPS, no durable database, no backups, and no shared vote service between machines.
 - The public repository is https://github.com/bucktuna/talkfish. This package does not change its visibility. There is no hosted deployment.
 - `npm run update:source` and `npm run corpus:pull` fast-forward one configured git remote. They refuse a dirty tree, a missing remote, and any history that is not a fast-forward. They do not send local commits anywhere and they do not delete local work. Corpus pull accepts only paths under `corpus/` and rejects private fields. `npm run corpus:export` copies the bundled chess JSON and does not read `data/`. Pending contributions are not exported. The intended remote, once access is allowed, is https://github.com/bucktuna/talkfish. It is not configured here, and these commands were not pointed at it. A zip/archive download does not keep fetching that remote; only a git clone with the remote configured can fast-forward later. Tests for this behavior use temporary local repositories.
 - Docker Compose is not included.
@@ -32,7 +34,11 @@ Other limits of this copy:
 
 ## Run
 
-Requires Node 22 and Stockfish on the PATH or at `/usr/games/stockfish` or `/usr/local/bin/stockfish`. This environment used Debian's Stockfish 16 package. The engine binary is not bundled.
+Requires Node 22. The default engine is the public Lichess cloud evaluation (`ENGINE_PROVIDER=lichess`). It needs no install and no key. A local Stockfish binary is optional: set `ENGINE_PROVIDER=uci` and install Stockfish on the PATH or at `/usr/games/stockfish` or `/usr/local/bin/stockfish`. The binary is not bundled.
+
+Lichess stores roughly 320 million positions, mostly openings and other common positions. A miss is labelled provisional and unverified. Requests are serialized. A 429 pauses lookups for 60 seconds.
+
+Possible future fallback engines, not wired in: [chess-api.com](https://chess-api.com) and [stockfish.online](https://stockfish.online). Both are key-based. This copy does not call them and does not read a key for them.
 
 ```bash
 npm install
@@ -67,7 +73,9 @@ An OpenAI-compatible server is optional and stays in environment variables read 
 
 - Chessground board, legal moves, undo, reset, flip, and two sample positions (open game, closed center).
 - One PGN or FEN box. Four-field FENs keep the turn, castling, and en passant, and fill only the halfmove clock and fullmove number with 0 and 1. PGN loads the main line to its final position, honors a `SetUp`/`FEN` pair, accepts `0-0` as castling, and tells you when a side variation was left out. A second game or an illegal move is rejected and the previous board stays.
-- Stockfish UCI: best move, depth, White's-point-of-view score (including mate), legal PV, and a short replay. Searches are bounded and the process is killed on cancel or timeout.
+- Engine results keep the same shape: best move, depth, White's-point-of-view score (including mate), legal PV, and SAN. The default source is Lichess cloud eval. `ENGINE_PROVIDER=uci` still runs a local Stockfish search, bounded, and killed on cancel or timeout.
+- Curated opening guides for the major families (Sicilian and its main lines, Ruy Lopez, Italian, French, Caro-Kann, Queen's Gambit, King's Indian, London, English, Scandinavian, and others). A match shows a compact "How to play this opening" panel. The text is labelled curated, not engine-verified. The coach can use it when you ask about a plan.
+- Game review: load a PGN, or fetch a Lichess username's recent public games, then read turning points. Cloud hits are marked engine-verified. Missing positions stay heuristic, using the board. The review ends with two or three concrete recommendations. Click a moment to jump the board there.
 - Two server steps: an assessment that does not receive the question, then a look at the question. Without a model, the second step is an engine-and-board reply labeled engine-only.
 - Mapped, provisional, and open claims, with the words and icons, not color alone. A high depth or a legal PV does not make a plan mapped. Open replies include "I'm still learning this spot, want to help?"
 - Shared corpus in `corpus/`, loaded with no account and no private database. The closed-center note says the rook on e1 does not decide whether f4 is still a plan, and that claim stays open.
@@ -94,7 +102,7 @@ Computed on the server. A client-sent weight is ignored.
 
 ## Tests that were run
 
-`npm test` covers Stockfish (legal PV, White's score when Black is to move, mate, terminal checkmate, invalid FEN, process cleanup), PGN/FEN import, the assessment-before-question loop, the closed-center f4 challenge staying open, vote weights, guest coaching, rejected guest submissions, quarantine of an email, ignored client weights, and report rate limits.
+`npm test` covers the Lichess adapter with mocked HTTP (a stored line, White's score when Black is to move, SAN, 404, 429 backoff, cache, cancellation), terminal checkmate, invalid FEN, and the local Stockfish path when a binary is installed. It also covers PGN/FEN import, opening guides, game review, the assessment-before-question loop, the closed-center f4 challenge staying open, vote weights, guest coaching, rejected guest submissions, quarantine of an email, ignored client weights, and report rate limits. The suite does not need Stockfish installed.
 
 A real microphone and speaker were not used. One Ollama `qwen2.5:0.5b` call is recorded above; the automated `npm test` suite does not require Ollama and uses a missing or mock provider.
 
