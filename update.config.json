@@ -1,0 +1,8 @@
+{
+  "remote": "github",
+  "branch": "main",
+  "corpusPaths": ["corpus/"],
+  "intendedUrl": "https://github.com/bucktuna/talkfish",
+  "preupdate": ["npm", "test"],
+  "note": "Fetches only this git remote name and branch. It does not create the remote, does not contact the intended URL by itself, and does not send local commits anywhere."
+}
