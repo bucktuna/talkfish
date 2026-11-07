@@ -1,0 +1,35 @@
+{
+  "patterns": [
+    {
+      "id": "rook-does-not-retire-break",
+      "statement": "Moving a rook, such as Rf1-e1, does not prove that a pawn break such as f4 is no longer a future plan.",
+      "status": "provisional",
+      "applicability": {
+        "description": "Only when the question treats a rook relocation as deciding a pawn-break plan in a closed-center position. It is not attached to every board that has a rook.",
+        "questionAllOf": ["rook|\\bre1\\b|\\brf1\\b|f1\\s*(?:-|to)\\s*e1", "f4|f-pawn|pawn break"],
+        "questionAnyOf": ["no longer|prove|abandon|plan|rules out|future"],
+        "positionThemesAny": ["closed-center"]
+      }
+    },
+    {
+      "id": "ndf3-not-only-a-block",
+      "statement": "Ndf3 can have both attacking and defensive geometry. Occupying f3 blocks the f-pawn and does not by itself prove the knight's only function.",
+      "status": "provisional",
+      "applicability": {
+        "description": "Only when the question is about Ndf3 or a d2 knight going to f3, and that move is legal from d2 on this exact FEN.",
+        "questionAllOf": ["ndf3|knight (?:to|on) f3|blocks? the f", "block|only|just|merely|defen"],
+        "requiresMoveFrom": { "san": "Nf3", "from": "d2" }
+      }
+    },
+    {
+      "id": "knight-attack-is-not-restraint",
+      "statement": "A knight that attacks or supports a pawn does not, by itself, prove that the strategy is restraint.",
+      "status": "provisional",
+      "applicability": {
+        "description": "Only when the question claims a knight attack proves a restraint strategy. It is not applied merely because a knight and a pawn are both on the board.",
+        "questionAllOf": ["knight|\\bnf3\\b", "restraint"],
+        "questionAnyOf": ["prove|means|therefore|strategy|shows|whole"]
+      }
+    }
+  ]
+}

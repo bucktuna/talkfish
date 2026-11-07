@@ -1,0 +1,242 @@
+{
+  "version": "0.1.0",
+  "positions": [
+    {
+      "id": "open-game",
+      "revisionId": "seed-open-game",
+      "positionKey": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq -",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
+      "themes": [
+        "open-game"
+      ],
+      "explanation": "White is to move in an open game, with a knight on f3 and a pawn on e4. The search report below is one Stockfish run. Which plan a developing move serves is provisional, not a proof.",
+      "claims": [
+        {
+          "id": "nf3-on-board",
+          "text": "White's knight is on f3.",
+          "kind": "board",
+          "status": "mapped",
+          "reason": "Checked against the piece placement.",
+          "evidence": [
+            "white knight on f3"
+          ],
+          "check": {
+            "type": "pieceOn",
+            "square": "f3",
+            "color": "w",
+            "piece": "n"
+          }
+        },
+        {
+          "id": "open-search",
+          "text": "Stored Stockfish 16 search at depth 12 ended on Nc3, +0.34 from White's side.",
+          "kind": "engine-report",
+          "status": "mapped",
+          "reason": "The stored PV was replayed. This reports that search and does not prove a unique plan.",
+          "evidence": [
+            "depth 12",
+            "b1c3"
+          ],
+          "check": {
+            "type": "storedSearch",
+            "bestMove": "b1c3",
+            "minDepth": 8
+          }
+        },
+        {
+          "id": "open-preference",
+          "text": "Engine preference in the stored search: Nc3.",
+          "kind": "engine-preference",
+          "status": "provisional",
+          "reason": "A finite search preference is not an explanation.",
+          "evidence": [
+            "depth 12"
+          ]
+        },
+        {
+          "id": "open-plan",
+          "text": "Developing a piece is a normal candidate. Which plan it serves is not settled by one line.",
+          "kind": "strategic",
+          "status": "provisional",
+          "reason": "Strategic reading. A seed file does not make this mapped.",
+          "evidence": [
+            "Maintainer-written hypothesis, not an engine cause."
+          ]
+        }
+      ],
+      "engine": {
+        "name": "Stockfish 16",
+        "depth": 12,
+        "bestMove": "b1c3",
+        "bestMoveSan": "Nc3",
+        "scoreWhiteCp": 34,
+        "scoreWhiteMate": null,
+        "scoreWhiteLabel": "+0.34 from White's side",
+        "pv": [
+          "b1c3",
+          "g8f6",
+          "f1b5",
+          "f8b4",
+          "c3d5",
+          "f6d5",
+          "e4d5",
+          "c6e7"
+        ],
+        "pvSan": [
+          "Nc3",
+          "Nf6",
+          "Bb5",
+          "Bb4",
+          "Nd5",
+          "Nxd5",
+          "exd5",
+          "Ne7"
+        ],
+        "stable": false
+      },
+      "provenance": {
+        "source": "maintainer-seed",
+        "corpusVersion": "0.1.0",
+        "note": "Board checks are re-run on load. The search report stays mapped only while it still matches the stored PV."
+      }
+    },
+    {
+      "id": "closed-center",
+      "revisionId": "seed-closed-center",
+      "positionKey": "r1bq1rk1/pp2bppp/2n1pn2/2ppP3/3P4/2NB4/PP1N1PPP/R1BQR1K1 w - -",
+      "fen": "r1bq1rk1/pp2bppp/2n1pn2/2ppP3/3P4/2NB4/PP1N1PPP/R1BQR1K1 w - - 0 10",
+      "themes": [
+        "closed-center"
+      ],
+      "explanation": "White is to move against a closed central wedge: pawns on d4 and e5 face black pawns on d5 and e6. The rook on e1 sits behind that wedge. f4 is still a legal move, so the rook's square does not retire that break. Whether f4 belongs in the plan is open.",
+      "claims": [
+        {
+          "id": "rook-e1",
+          "text": "White's rook is on e1.",
+          "kind": "board",
+          "status": "mapped",
+          "reason": "Checked against the piece placement.",
+          "evidence": [
+            "white rook on e1"
+          ],
+          "check": {
+            "type": "pieceOn",
+            "square": "e1",
+            "color": "w",
+            "piece": "r"
+          }
+        },
+        {
+          "id": "wedge",
+          "text": "The d- and e-file pawns block each other.",
+          "kind": "board",
+          "status": "mapped",
+          "reason": "Both central files have opposing pawns on adjacent ranks.",
+          "evidence": [
+            "d4/d5 and e5/e6"
+          ],
+          "check": {
+            "type": "centralWedge"
+          }
+        },
+        {
+          "id": "f4-legal",
+          "text": "f4 is a legal move in this position.",
+          "kind": "board",
+          "status": "mapped",
+          "reason": "The move was checked on this FEN.",
+          "evidence": [
+            "san f4"
+          ],
+          "check": {
+            "type": "moveLegal",
+            "san": "f4"
+          }
+        },
+        {
+          "id": "closed-search",
+          "text": "Stored Stockfish 16 search at depth 12 ended on exf6, +2.91 from White's side.",
+          "kind": "engine-report",
+          "status": "mapped",
+          "reason": "The stored PV was replayed. Depth does not promote the plan to mapped.",
+          "evidence": [
+            "depth 12",
+            "e5f6"
+          ],
+          "check": {
+            "type": "storedSearch",
+            "bestMove": "e5f6",
+            "minDepth": 8
+          }
+        },
+        {
+          "id": "closed-preference",
+          "text": "Engine preference in the stored search: exf6.",
+          "kind": "engine-preference",
+          "status": "provisional",
+          "reason": "Search preference is not explanation confidence.",
+          "evidence": [
+            "depth 12"
+          ]
+        },
+        {
+          "id": "f4-hypothesis",
+          "text": "One reading is that White can keep the wedge and still treat f4 as a future break. That is not proof.",
+          "kind": "strategic",
+          "status": "provisional",
+          "reason": "Plan language stays provisional.",
+          "evidence": [
+            "Maintainer-written hypothesis."
+          ]
+        },
+        {
+          "id": "f4-plan-open",
+          "text": "Whether f4 is still the plan is not established by the rook on e1.",
+          "kind": "causal",
+          "status": "open",
+          "reason": "A rook square does not decide a future pawn break.",
+          "evidence": [
+            "No causal check is possible from one piece placement."
+          ]
+        }
+      ],
+      "engine": {
+        "name": "Stockfish 16",
+        "depth": 12,
+        "bestMove": "e5f6",
+        "bestMoveSan": "exf6",
+        "scoreWhiteCp": 291,
+        "scoreWhiteMate": null,
+        "scoreWhiteLabel": "+2.91 from White's side",
+        "pv": [
+          "e5f6",
+          "e7f6",
+          "d4c5",
+          "e6e5",
+          "d3b5",
+          "c8e6",
+          "d2f3",
+          "h7h6",
+          "b5c6"
+        ],
+        "pvSan": [
+          "exf6",
+          "Bxf6",
+          "dxc5",
+          "e5",
+          "Bb5",
+          "Be6",
+          "Nf3",
+          "h6",
+          "Bxc6"
+        ],
+        "stable": true
+      },
+      "provenance": {
+        "source": "maintainer-seed",
+        "corpusVersion": "0.1.0",
+        "note": "Seeded from a real Stockfish search plus board checks. Strategic sentences were not marked mapped."
+      }
+    }
+  ]
+}
