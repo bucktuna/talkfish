@@ -160,6 +160,7 @@ button, textarea, input { font: inherit; }
 .review-panel h2 { margin: 0 0 6px; font-family: Georgia, serif; font-size: 1.05rem; }
 .opening-guide p, .review-panel p { margin: 6px 0; line-height: 1.4; }
 .moment-list { display: grid; gap: 6px; margin: 8px 0; padding: 0; list-style: none; }
+.moment-row { display: flex; gap: 8px; align-items: flex-start; }
 .moment, .moment-list .linkish { text-align: left; }
 .moment {
   width: 100%;

@@ -133,6 +133,22 @@ export type GameReview = {
   plies: number;
 };
 
+export type PositionGist = {
+  fen: string;
+  /** Cloud eval was stored, or the rules already decided the game. Otherwise provisional. */
+  source: "engine-checked" | "provisional";
+  phrasing: "model" | "facts-only";
+  modelNote?: string;
+  balance: string;
+  whitePlan: string;
+  blackPlan: string;
+  watch: string;
+  bestMove: string;
+  text: string;
+  /** Same gist with SAN spoken for read-aloud, such as Nf3 as "knight f3". */
+  spoken: string;
+};
+
 export type LichessGameSummary = {
   id: string;
   white: string;

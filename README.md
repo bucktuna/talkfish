@@ -18,7 +18,7 @@ This section is what this tree actually does. It is not the mission statement.
 
 The engine source in this copy is the Lichess cloud evaluation: a stored Stockfish result for common positions, fetched with no key. A local Stockfish binary is not required. A position that is not in that cache is labelled provisional and unverified.
 
-A real microphone and speaker were not used. Typing works with speech APIs missing. Browser speech, when the browser offers it, is not a guaranteed offline recognizer, and this app does not store audio. One local Ollama call with `qwen2.5:0.5b` did run through the coaching function and returned mode `model`. Its reply was the generic sentence "The position is a typical pawn structure." That call shows the wiring, not that the small model's chess text is reliable. If Ollama is absent, the coach says it is engine-only instead of inventing model prose.
+A real microphone and speaker were not used. Typing works with speech APIs missing. Browser speech, when the browser offers it, is not a guaranteed offline recognizer, and this app does not store audio. The configured coach model is whatever `OLLAMA_MODEL` names (default `qwen2.5:14b` at `http://127.0.0.1:11434`). Talkfish asks Ollama `/api/tags` and does not call a tag that is not listed. If Ollama is absent or the tag is missing, the coach stays engine-only and Explain uses a facts-only gist. It does not invent model prose.
 
 Repeat-avoidance is session-local only. The browser tab keeps a session id in `sessionStorage`, and the server process remembers which points that tab already heard so a later reply in the same tab can be shorter. That record is not a durable personal mastery profile, it is not written into `corpus/`, and it is not an export of the conversation. Shared learning is the chess corpus shipped with the source: position keys, claims, evidence, and provenance. Raw chat, audio, accounts, passwords, and voter identities stay out of it.
 
@@ -59,12 +59,12 @@ npm run seed:corpus
 
 Copy `.env.example` to `.env.local` only if you want to change the engine limits or point at a model. A basic local run does not ask for an API key.
 
-Default model setting is Ollama at `http://127.0.0.1:11434`, model `qwen2.5:0.5b` (about 400MB). If nothing is listening there, Talkfish stays in engine-only mode and says so. It does not invent model prose. One local run of that model, Ollama 0.40.15, did answer through the coaching function: the assessment call came first and did not contain the question, then the examine call did. The catalog name stayed provisional and the search report stayed mapped. That does not mean the model's strategic sentences were checked for correctness. A microphone and speaker were not used.
+Default model setting is Ollama at `http://127.0.0.1:11434`, model `qwen2.5:14b` (Qwen 2.5 14B). Set `OLLAMA_MODEL` to the exact name from `ollama list` if your tag differs. The first reply can take about 100 seconds while that model loads; `LLM_TIMEOUT_MS` defaults to 180000, and Explain shows "Thinking…" while it waits. If `/api/tags` does not list the configured name, Talkfish says so and does not call it.
 
 ```bash
 # optional, on a machine that already has Ollama
 ollama serve
-ollama pull qwen2.5:0.5b
+ollama pull qwen2.5:14b
 ```
 
 An OpenAI-compatible server is optional and stays in environment variables read only on the server. The browser never receives the key.
@@ -75,6 +75,7 @@ An OpenAI-compatible server is optional and stays in environment variables read 
 - One PGN or FEN box. Four-field FENs keep the turn, castling, and en passant, and fill only the halfmove clock and fullmove number with 0 and 1. PGN loads the main line to its final position, honors a `SetUp`/`FEN` pair, accepts `0-0` as castling, and tells you when a side variation was left out. A second game or an illegal move is rejected and the previous board stays.
 - Engine results keep the same shape: best move, depth, White's-point-of-view score (including mate), legal PV, and SAN. The default source is Lichess cloud eval. `ENGINE_PROVIDER=uci` still runs a local Stockfish search, bounded, and killed on cancel or timeout.
 - Curated opening guides for the major families (Sicilian and its main lines, Ruy Lopez, Italian, French, Caro-Kann, Queen's Gambit, King's Indian, London, English, Scandinavian, and others). A match shows a compact "How to play this opening" panel. The text is labelled curated, not engine-verified. The coach can use it when you ask about a plan.
+- Explain, under the board and on each review moment, gives a short gist of that position: who is better, a plan for each side, what to watch, and the best move's idea. A stored cloud eval is labelled engine-checked. Otherwise the gist is provisional and uses board facts plus the opening guide. The model only rephrases those facts. Read-aloud says Nf3 as "knight f3".
 - Game review: load a PGN, or fetch a Lichess username's recent public games, then read turning points. Cloud hits are marked engine-verified. Missing positions stay heuristic, using the board. The review ends with two or three concrete recommendations. Click a moment to jump the board there.
 - Two server steps: an assessment that does not receive the question, then a look at the question. Without a model, the second step is an engine-and-board reply labeled engine-only.
 - Mapped, provisional, and open claims, with the words and icons, not color alone. A high depth or a legal PV does not make a plan mapped. Open replies include "I'm still learning this spot, want to help?"
@@ -104,7 +105,7 @@ Computed on the server. A client-sent weight is ignored.
 
 `npm test` covers the Lichess adapter with mocked HTTP (a stored line, White's score when Black is to move, SAN, 404, 429 backoff, cache, cancellation), terminal checkmate, invalid FEN, and the local Stockfish path when a binary is installed. It also covers PGN/FEN import, opening guides, game review, the assessment-before-question loop, the closed-center f4 challenge staying open, vote weights, guest coaching, rejected guest submissions, quarantine of an email, ignored client weights, and report rate limits. The suite does not need Stockfish installed.
 
-A real microphone and speaker were not used. One Ollama `qwen2.5:0.5b` call is recorded above; the automated `npm test` suite does not require Ollama and uses a missing or mock provider.
+A real microphone and speaker were not used. The automated `npm test` suite does not require Ollama or Stockfish. It uses a missing or mock provider, and it checks that a model tag absent from `/api/tags` stays facts-only.
 
 ## License
 

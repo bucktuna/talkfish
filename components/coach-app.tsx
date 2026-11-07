@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { importPosition } from "@/lib/import-position";
 import { sideToMoveLabel, START_FEN } from "@/lib/fen";
 import { SAMPLES } from "@/lib/samples";
-import type { Claim, ClaimStatus, CoachResponse, GameReview, LichessGameSummary, OpeningGuideView } from "@/lib/types";
+import type { Claim, ClaimStatus, CoachResponse, GameReview, LichessGameSummary, OpeningGuideView, PositionGist, ReviewMoment } from "@/lib/types";
 import { OPEN_INVITATION } from "@/lib/types";
 
 type Line = {
@@ -70,9 +70,13 @@ export function CoachApp() {
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [lichessName, setLichessName] = useState("");
   const [lichessGames, setLichessGames] = useState<LichessGameSummary[] | null>(null);
+  const [gist, setGist] = useState<PositionGist | null>(null);
+  const [explainBusy, setExplainBusy] = useState(false);
+  const [explainError, setExplainError] = useState<string | null>(null);
   const seq = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const reviewAbort = useRef<AbortController | null>(null);
+  const explainAbort = useRef<AbortController | null>(null);
   const sessionRef = useRef("");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
@@ -128,6 +132,7 @@ export function CoachApp() {
   function adopt(next: Line) {
     abortRef.current?.abort();
     reviewAbort.current?.abort();
+    explainAbort.current?.abort();
     setPv(null);
     setPendingPromo(null);
     setLine(next);
@@ -288,6 +293,48 @@ export function CoachApp() {
     }
   }
 
+  async function runExplain(boardFen: string, history: { startFen?: string; historySans?: string[] }) {
+    explainAbort.current?.abort();
+    const controller = new AbortController();
+    explainAbort.current = controller;
+    setExplainBusy(true);
+    setExplainError(null);
+    try {
+      const response = await fetch("/api/explain", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: window.location.origin },
+        body: JSON.stringify({ fen: boardFen, ...history }),
+        signal: controller.signal,
+      });
+      const body = (await response.json()) as PositionGist & { error?: string };
+      if (controller.signal.aborted) return;
+      if (!response.ok) {
+        setExplainError(body.error || "The explanation did not finish.");
+        return;
+      }
+      setGist(body);
+      speak(body.spoken);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setExplainError("The explanation did not finish.");
+    } finally {
+      if (explainAbort.current === controller) setExplainBusy(false);
+    }
+  }
+
+  function explainCurrent() {
+    if (pv) {
+      void runExplain(displayFen, {});
+      return;
+    }
+    void runExplain(currentFen(line), historyPayload(line));
+  }
+
+  function explainMoment(moment: ReviewMoment) {
+    showMoment(moment.ply);
+    void runExplain(moment.fen, { startFen: line.fens[0], historySans: line.sans.slice(0, moment.ply) });
+  }
+
   function showMoment(ply: number) {
     setPv(null);
     setPendingPromo(null);
@@ -421,6 +468,7 @@ export function CoachApp() {
   const side = sideToMoveLabel(displayFen);
   const openingLabel = [...messages].reverse().find((message) => message.response?.opening)?.response?.opening?.label;
   const openingGuide = [...messages].reverse().find((message) => message.response?.openingGuide)?.response?.openingGuide ?? null;
+  const shownGist = gist && gist.fen.split(" ").slice(0, 4).join(" ") === displayFen.split(" ").slice(0, 4).join(" ") ? gist : null;
 
   const speechNote = useMemo(() => {
     if (speech.error) return speech.error;
@@ -446,6 +494,9 @@ export function CoachApp() {
             <ChessBoard fen={displayFen} orientation={orientation} interactive={!pv} onMove={(from, to) => playUserMove(from, to)} />
           </div>
           <div className="under-board">
+            <Button type="button" size="sm" onClick={() => explainCurrent()} disabled={explainBusy} data-testid="explain-button">
+              Explain
+            </Button>
             <span className="turn-label">{side} to move</span>
             {openingLabel ? <span className="turn-label">{openingLabel}</span> : null}
             <Button variant="outline" size="sm" type="button" onClick={() => setLine((current) => ({ ...current, cursor: Math.max(0, current.cursor - 1) }))} disabled={Boolean(pv) || line.cursor === 0}>
@@ -474,6 +525,18 @@ export function CoachApp() {
               </>
             ) : null}
           </div>
+          {explainBusy ? <p className="note" data-testid="explain-thinking">Thinking…</p> : null}
+          {explainError ? <p className="alert" role="alert">{explainError}</p> : null}
+          {shownGist ? (
+            <div className="opening-guide" data-testid="explain-panel">
+              <p className="note">
+                {shownGist.source === "engine-checked" ? "Engine-checked" : "Provisional"}
+                {shownGist.phrasing === "facts-only" ? " · facts only" : ""}
+              </p>
+              {shownGist.modelNote ? <p className="note">{shownGist.modelNote}</p> : null}
+              <p style={{ whiteSpace: "pre-wrap" }}>{shownGist.text}</p>
+            </div>
+          ) : null}
           {openingGuide ? (
             <OpeningGuidePanel guide={openingGuide} pastCatalog={Boolean(openingLabel?.includes("not the current catalog position"))} />
           ) : null}
@@ -566,13 +629,16 @@ export function CoachApp() {
                   {review.moments.length ? (
                     <ul className="moment-list">
                       {review.moments.map((moment) => (
-                        <li key={`${moment.ply}-${moment.san}`}>
+                        <li key={`${moment.ply}-${moment.san}`} className="moment-row">
                           <button type="button" className="moment" onClick={() => showMoment(moment.ply)} data-ply={moment.ply}>
                             <span className="badge-word">
                               {moment.source === "engine" ? "Engine-verified" : moment.source === "rules" ? "Rules" : "Heuristic"}. {moment.label}.
                             </span>{" "}
                             Ply {moment.ply}, {moment.side}, {moment.san}. {moment.note}
                           </button>
+                          <Button type="button" size="sm" variant="outline" onClick={() => explainMoment(moment)} disabled={explainBusy}>
+                            Explain
+                          </Button>
                         </li>
                       ))}
                     </ul>

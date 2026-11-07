@@ -7,6 +7,7 @@ import { EngineError, engineProvider, resolveStockfishPath, stockfishInstalled }
 import { HttpError } from "@/lib/http/errors";
 import { clientKey, enforceLimit } from "@/lib/rate-limit";
 import { redact } from "@/lib/redact";
+import { explainPosition } from "@/lib/gist";
 import { fetchRecentLichessGames } from "@/lib/lichess-games";
 import { reviewGame } from "@/lib/review";
 import { sessionKey } from "@/lib/session-memory";
@@ -105,6 +106,7 @@ export async function handleApi(req: Request): Promise<Response> {
     if (path === "/api/orient" && req.method === "POST") return await orient(req);
     if (path === "/api/coach" && req.method === "POST") return await coach(req);
     if (path === "/api/review" && req.method === "POST") return await gameReview(req);
+    if (path === "/api/explain" && req.method === "POST") return await explain(req);
     if (path === "/api/lichess/games" && req.method === "GET") return await lichessGames(req, url);
     if (path === "/api/auth/signup" && req.method === "POST") return await signup(req);
     if (path === "/api/auth/login" && req.method === "POST") return await login(req);
@@ -215,6 +217,23 @@ async function coach(req: Request): Promise<Response> {
       historySans: body.historySans,
     });
     return json(result);
+  } catch (error) {
+    return engineFailure(error);
+  }
+}
+
+async function explain(req: Request): Promise<Response> {
+  assertSameOrigin(req);
+  enforceLimit("coach", clientKey(req));
+  const body = coachSchema.parse(await readJson(req, 20_000));
+  try {
+    const gist = await explainPosition({
+      fen: body.fen,
+      startFen: body.startFen,
+      historySans: body.historySans,
+      signal: req.signal,
+    });
+    return json(gist);
   } catch (error) {
     return engineFailure(error);
   }

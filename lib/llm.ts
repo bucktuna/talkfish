@@ -4,9 +4,14 @@ import { redact } from "@/lib/redact";
 export type ChatMessage = { role: "system" | "user"; content: string };
 
 export type LlmCall = {
-  purpose: "assess" | "examine";
+  purpose: "assess" | "examine" | "explain";
   signal?: AbortSignal;
 };
+
+/** Ollama library name for Qwen 2.5 14B. Override with OLLAMA_MODEL if `ollama list` shows a different tag. */
+export const DEFAULT_OLLAMA_MODEL = "qwen2.5:14b";
+
+export const DEFAULT_LLM_TIMEOUT_MS = 180_000;
 
 export interface LlmProvider {
   id: string;
@@ -100,20 +105,56 @@ function unavailable(reason: string): LlmProvider {
   };
 }
 
+export function configuredOllamaModel(): string {
+  const value = process.env.OLLAMA_MODEL?.trim();
+  return value || DEFAULT_OLLAMA_MODEL;
+}
+
+/** Exact tag match against Ollama `/api/tags` names. A near-miss is not treated as the configured model. */
+export function ollamaModelPresent(names: string[], configured: string): boolean {
+  const want = configured.trim();
+  return names.some((name) => name.trim() === want);
+}
+
+export function ollamaAvailability(input: {
+  reachable: boolean;
+  status?: number;
+  names: string[];
+  model: string;
+  host: string;
+}): { ok: boolean; reason?: string } {
+  if (!input.reachable) {
+    return {
+      ok: false,
+      reason: `Ollama at ${input.host} returned ${input.status ?? "an error"}. Talkfish will not invent model prose. The coach stays engine-only, and Explain uses a facts-only gist.`,
+    };
+  }
+  if (!ollamaModelPresent(input.names, input.model)) {
+    const listed = input.names.filter(Boolean).slice(0, 8).join(", ");
+    return {
+      ok: false,
+      reason: `Ollama at ${input.host} is up, but ${input.model} is not in /api/tags${listed ? ` (listed: ${listed})` : ""}. Set OLLAMA_MODEL to a listed name. Talkfish will not invent model prose. The coach stays engine-only, and Explain uses a facts-only gist.`,
+    };
+  }
+  return { ok: true };
+}
+
 function ollamaProvider(): LlmProvider {
   const base = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/$/, "");
-  const model = process.env.OLLAMA_MODEL || "qwen2.5:0.5b";
+  const model = configuredOllamaModel();
   return {
     id: "ollama",
     async available() {
       try {
-        const response = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(1500) });
-        if (!response.ok) return { ok: false, reason: `Ollama at ${hostOf(base)} returned ${response.status}.` };
-        return { ok: true };
+        const response = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(2500) });
+        if (!response.ok) return ollamaAvailability({ reachable: false, status: response.status, names: [], model, host: hostOf(base) });
+        const body = (await response.json()) as { models?: Array<{ name?: string; model?: string }> };
+        const names = (body.models ?? []).flatMap((item) => [item.name, item.model].filter((value): value is string => Boolean(value)));
+        return ollamaAvailability({ reachable: true, names, model, host: hostOf(base) });
       } catch {
         return {
           ok: false,
-          reason: `No local model responded at ${hostOf(base)} (model ${model}). This answer is engine-only, not a model reading.`,
+          reason: `No local model responded at ${hostOf(base)} (OLLAMA_MODEL=${model}). Talkfish will not invent model prose. The coach stays engine-only, and Explain uses a facts-only gist.`,
         };
       }
     },
@@ -175,7 +216,9 @@ async function postJson(
 ): Promise<string> {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (apiKey) headers.authorization = `Bearer ${apiKey}`;
-  const timeout = AbortSignal.timeout(Number(process.env.LLM_TIMEOUT_MS || 60000));
+  const configured = Number(process.env.LLM_TIMEOUT_MS);
+  const timeoutMs = Number.isFinite(configured) && configured >= 1000 ? configured : DEFAULT_LLM_TIMEOUT_MS;
+  const timeout = AbortSignal.timeout(timeoutMs);
   const composed = signal ? AbortSignal.any([signal, timeout]) : timeout;
   let response: Response;
   try {
